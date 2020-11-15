@@ -16,7 +16,7 @@
  * under the License.
  */
 
-package org.wso2.carbon.identity.samlsso.manager.ext;
+package org.wso2.carbon.identity.custom.samlsso.manager;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.logging.Log;
@@ -26,8 +26,26 @@ import org.opensaml.Configuration;
 import org.opensaml.common.SAMLVersion;
 import org.opensaml.common.xml.SAMLConstants;
 import org.opensaml.saml2.common.Extensions;
-import org.opensaml.saml2.core.*;
-import org.opensaml.saml2.core.impl.*;
+import org.opensaml.saml2.core.AuthnContext;
+import org.opensaml.saml2.core.AuthnContextClassRef;
+import org.opensaml.saml2.core.AuthnContextComparisonTypeEnumeration;
+import org.opensaml.saml2.core.AuthnRequest;
+import org.opensaml.saml2.core.Issuer;
+import org.opensaml.saml2.core.LogoutRequest;
+import org.opensaml.saml2.core.NameID;
+import org.opensaml.saml2.core.NameIDPolicy;
+import org.opensaml.saml2.core.NameIDType;
+import org.opensaml.saml2.core.RequestAbstractType;
+import org.opensaml.saml2.core.RequestedAuthnContext;
+import org.opensaml.saml2.core.SessionIndex;
+import org.opensaml.saml2.core.impl.AuthnContextClassRefBuilder;
+import org.opensaml.saml2.core.impl.AuthnRequestBuilder;
+import org.opensaml.saml2.core.impl.IssuerBuilder;
+import org.opensaml.saml2.core.impl.LogoutRequestBuilder;
+import org.opensaml.saml2.core.impl.NameIDBuilder;
+import org.opensaml.saml2.core.impl.NameIDPolicyBuilder;
+import org.opensaml.saml2.core.impl.RequestedAuthnContextBuilder;
+import org.opensaml.saml2.core.impl.SessionIndexBuilder;
 import org.opensaml.xml.io.Marshaller;
 import org.opensaml.xml.io.MarshallingException;
 import org.opensaml.xml.util.Base64;
@@ -66,6 +84,8 @@ public class AuthContextSAMLSSOManager extends DefaultSAML2SSOManager {
 
     private static final String SIGN_AUTH2_SAML_USING_SUPER_TENANT = "SignAuth2SAMLUsingSuperTenant";
     private static final String NAME_ID_TYPE = "NameIDType";
+    private static final String SAML_SSO_PARAM_KEY = "SAMLSSOParamKey";
+    private static final String SAML_SSO_DEFAULT_AUTHN_CLASSES = "SAMLSSODefaultAuthnContextClasses";
     private IdentityProvider identityProvider = null;
     private Map<String, String> properties;
     private String tenantDomain;
@@ -74,18 +94,12 @@ public class AuthContextSAMLSSOManager extends DefaultSAML2SSOManager {
     public void init(String tenantDomain, Map<String, String> properties, IdentityProvider idp)
             throws SAMLSSOException {
 
+        super.init(tenantDomain, properties, idp);
         this.tenantDomain = tenantDomain;
         this.identityProvider = idp;
         this.properties = properties;
     }
 
-    /**
-     * Returns the redirection URL with the appended SAML2
-     * Request message
-     *
-     * @param request SAML 2 request
-     * @return redirectionUrl
-     */
     @Override
     public String buildRequest(HttpServletRequest request, boolean isLogout, boolean isPassive,
                                String loginPage, AuthenticationContext context)
@@ -118,7 +132,7 @@ public class AuthContextSAMLSSOManager extends DefaultSAML2SSOManager {
 
             requestMessage = buildLogoutRequest(username, sessionIndex, loginPage, nameQualifier, spNameQualifier);
         }
-        String idpUrl = null;
+        String idpUrl;
         boolean isSignAuth2SAMLUsingSuperTenant = false;
 
         String encodedRequestMessage = encodeRequestMessage(requestMessage);
@@ -166,72 +180,6 @@ public class AuthContextSAMLSSOManager extends DefaultSAML2SSOManager {
             idpUrl = loginPage.concat("?").concat(httpQueryString.toString());
         }
         return idpUrl;
-    }
-
-
-    /**
-     * @param request
-     * @param isLogout
-     * @param isPassive
-     * @param loginPage
-     * @return return encoded SAML Auth request
-     * @throws SAMLSSOException
-     */
-    @Override
-    public String buildPostRequest(HttpServletRequest request, boolean isLogout,
-                                   boolean isPassive, String loginPage, AuthenticationContext context) throws SAMLSSOException {
-
-        doBootstrap();
-        RequestAbstractType requestMessage;
-        String signatureAlgoProp = null;
-        String digestAlgoProp = null;
-        String includeCertProp = null;
-        String signatureAlgo = null;
-        String digestAlgo = null;
-        boolean includeCert = false;
-
-        // get Signature Algorithm
-        signatureAlgoProp = properties
-                .get(IdentityApplicationConstants.Authenticator.SAML2SSO.SIGNATURE_ALGORITHM);
-        if (StringUtils.isEmpty(signatureAlgoProp)) {
-            signatureAlgoProp = IdentityApplicationConstants.XML.SignatureAlgorithm.RSA_SHA1;
-        }
-        signatureAlgo = IdentityApplicationManagementUtil.getXMLSignatureAlgorithms().get(signatureAlgoProp);
-
-        // get Digest Algorithm
-        digestAlgoProp = properties
-                .get(IdentityApplicationConstants.Authenticator.SAML2SSO.DIGEST_ALGORITHM);
-        if (StringUtils.isEmpty(digestAlgoProp)) {
-            digestAlgoProp = IdentityApplicationConstants.XML.DigestAlgorithm.SHA1;
-        }
-        digestAlgo = IdentityApplicationManagementUtil.getXMLDigestAlgorithms().get(digestAlgoProp);
-
-        includeCertProp = properties
-                .get(IdentityApplicationConstants.Authenticator.SAML2SSO.INCLUDE_CERT);
-        if (StringUtils.isEmpty(includeCertProp) || Boolean.parseBoolean(includeCertProp)) {
-            includeCert = true;
-        }
-
-        if (!isLogout) {
-            requestMessage = buildAuthnRequest(request, isPassive, loginPage, context);
-            if (SSOUtils.isAuthnRequestSigned(properties)) {
-                SSOUtils.setSignature(requestMessage, signatureAlgo, digestAlgo, includeCert,
-                        new X509CredentialImpl(context.getTenantDomain(), null));
-            }
-        } else {
-            String username = (String) request.getSession().getAttribute(SSOConstants.LOGOUT_USERNAME);
-            String sessionIndex = (String) request.getSession().getAttribute(SSOConstants.LOGOUT_SESSION_INDEX);
-            String nameQualifier = (String) request.getSession().getAttribute(SSOConstants.NAME_QUALIFIER);
-            String spNameQualifier = (String) request.getSession().getAttribute(SSOConstants.SP_NAME_QUALIFIER);
-
-            requestMessage = buildLogoutRequest(username, sessionIndex, loginPage, nameQualifier, spNameQualifier);
-            if (SSOUtils.isLogoutRequestSigned(properties)) {
-                SSOUtils.setSignature(requestMessage, signatureAlgo, digestAlgo, includeCert,
-                        new X509CredentialImpl(context.getTenantDomain(), null));
-            }
-        }
-
-        return SSOUtils.encode(SSOUtils.marshall(requestMessage));
     }
 
     private AuthnRequest buildAuthnRequest(HttpServletRequest request,
@@ -335,9 +283,8 @@ public class AuthContextSAMLSSOManager extends DefaultSAML2SSOManager {
     }
 
     private RequestedAuthnContext buildRequestedAuthnContext(AuthnRequest inboundAuthnRequest,
-                                                             HttpServletRequest request) throws SAMLSSOException {
+                                                             HttpServletRequest request) {
 
-        /* AuthnContext */
         RequestedAuthnContextBuilder requestedAuthnContextBuilder = null;
         RequestedAuthnContext requestedAuthnContext = null;
 
@@ -346,39 +293,36 @@ public class AuthContextSAMLSSOManager extends DefaultSAML2SSOManager {
 
         if (StringUtils.isNotEmpty(includeAuthnContext) && "as_request".equalsIgnoreCase(includeAuthnContext)) {
             if (inboundAuthnRequest != null) {
-
                 RequestedAuthnContext incomingRequestedAuthnContext = inboundAuthnRequest.getRequestedAuthnContext();
-
                 requestedAuthnContextBuilder = new RequestedAuthnContextBuilder();
                 requestedAuthnContext = requestedAuthnContextBuilder.buildObject();
                 if (incomingRequestedAuthnContext != null) {
                     requestedAuthnContext.getAuthnContextClassRefs();
                     requestedAuthnContext.setDOM(incomingRequestedAuthnContext.getDOM());
                 } else {
-
-                    String[] queryParamValues = null;
+                    String[] authContextClasses = null;
                     AuthenticatorConfig authenticatorConfig =
                             FileBasedConfigurationBuilder.getInstance().getAuthenticatorConfigMap()
                                     .get(SSOConstants.AUTHENTICATOR_NAME);
                     if (authenticatorConfig != null) {
-                        String samlparamkey = authenticatorConfig.getParameterMap().get("SAMLSSOPARAMKey");
-                        if (StringUtils.isNotBlank(samlparamkey)) {
-                            String queryParam = request.getParameter(samlparamkey);
+                        String authContextClassValues = authenticatorConfig.getParameterMap().get(SAML_SSO_PARAM_KEY);
+                        if (StringUtils.isNotBlank(authContextClassValues)) {
+                            String queryParam = request.getParameter(authContextClassValues);
                             if (queryParam != null && !queryParam.isEmpty()) {
-                                queryParamValues = queryParam.split(",");
+                                authContextClasses = queryParam.split(",");
                             }
                         }
                     }
 
-                    if (queryParamValues != null) {
-                        for (String queryParamValue : queryParamValues) {
+                    if (authContextClasses != null) {
+                        for (String authContextClass : authContextClasses) {
 
                             AuthnContextClassRefBuilder authnContextClassRefBuilder = new AuthnContextClassRefBuilder();
                             AuthnContextClassRef authnContextClassRef = authnContextClassRefBuilder
                                     .buildObject(SAMLConstants.SAML20_NS,
                                             AuthnContextClassRef.DEFAULT_ELEMENT_LOCAL_NAME,
                                             SAMLConstants.SAML20_PREFIX);
-                            String authnContextClass = queryParamValue;
+                            String authnContextClass = authContextClass;
                             String samlAuthnContextURN = IdentityApplicationManagementUtil
                                     .getSAMLAuthnContextClasses().get(authnContextClass);
 
@@ -387,8 +331,8 @@ public class AuthContextSAMLSSOManager extends DefaultSAML2SSOManager {
                                 authnContextClassRef.setAuthnContextClassRef(samlAuthnContextURN);
 
                             } else {
-                                //There are no any matched URN for given authnContextClass, so added authnContextClass name to the
-                                // AuthnContextClassRef.
+                                //There are no any matched URN for given authnContextClass,
+                                //so added authnContextClass name to the AuthnContextClassRef.
                                 authnContextClassRef.setAuthnContextClassRef(authnContextClass);
                             }
 
@@ -397,37 +341,32 @@ public class AuthContextSAMLSSOManager extends DefaultSAML2SSOManager {
                         }
                     } else {
 
-                        AuthnContextClassRefBuilder authnContextClassRefBuilder = new AuthnContextClassRefBuilder();
-                        AuthnContextClassRef authnContextClassRef = authnContextClassRefBuilder
-                                .buildObject(SAMLConstants.SAML20_NS,
-                                        AuthnContextClassRef.DEFAULT_ELEMENT_LOCAL_NAME,
-                                        SAMLConstants.SAML20_PREFIX);
-                        AuthnContextClassRef authnContextClassRef2 = authnContextClassRefBuilder
-                                .buildObject(SAMLConstants.SAML20_NS,
-                                        AuthnContextClassRef.DEFAULT_ELEMENT_LOCAL_NAME,
-                                        SAMLConstants.SAML20_PREFIX);
-
                         if (authenticatorConfig != null) {
-                            String authnContextClass =
-                                    authenticatorConfig.getParameterMap().get("SAMLSSODefaultAuthnContext1");
-                            String authContextClass2 =
-                                    authenticatorConfig.getParameterMap().get("SAMLSSODefaultAuthnContext2");
-                            if (StringUtils.isNotBlank(authnContextClass) &&
-                                    StringUtils.isNotBlank(authContextClass2)) {
+                            String authContextClassValues =
+                                    authenticatorConfig.getParameterMap().get(SAML_SSO_DEFAULT_AUTHN_CLASSES);
 
-                                //There are no any matched URN for given authnContextClass, so added authnContextClass name to the
-                                // AuthnContextClassRef.
-                                authnContextClassRef.setAuthnContextClassRef(authnContextClass);
-                                authnContextClassRef2.setAuthnContextClassRef(authContextClass2);
-                                requestedAuthnContext.getAuthnContextClassRefs().add(authnContextClassRef);
-                                requestedAuthnContext.getAuthnContextClassRefs().add(authnContextClassRef2);
+                            if (StringUtils.isNotBlank(authContextClassValues)) {
+                                authContextClasses = authContextClassValues.split(",");
+                            }
 
+                            if (authContextClasses != null) {
+
+                                for (String authContextClass : authContextClasses) {
+
+                                    AuthnContextClassRefBuilder authnContextClassRefBuilder =
+                                            new AuthnContextClassRefBuilder();
+                                    AuthnContextClassRef authnContextClassRef = authnContextClassRefBuilder
+                                            .buildObject(SAMLConstants.SAML20_NS,
+                                                    AuthnContextClassRef.DEFAULT_ELEMENT_LOCAL_NAME,
+                                                    SAMLConstants.SAML20_PREFIX);
+
+                                    authnContextClassRef.setAuthnContextClassRef(authContextClass);
+                                    requestedAuthnContext.getAuthnContextClassRefs().add(authnContextClassRef);
+                                }
                             }
                         }
-
                     }
 
-                    /* Authentication Context Comparison Level */
                     String authnContextComparison =
                             IdentityApplicationConstants.Authenticator.SAML2SSO.AUTHENTICATION_CONTEXT_COMPARISON_LEVEL;
                     if (StringUtils.isNotEmpty(authnContextComparison)) {
@@ -454,7 +393,7 @@ public class AuthContextSAMLSSOManager extends DefaultSAML2SSOManager {
 
             requestedAuthnContextBuilder = new RequestedAuthnContextBuilder();
             requestedAuthnContext = requestedAuthnContextBuilder.buildObject();
-            /* AuthnContextClass */
+
             AuthnContextClassRefBuilder authnContextClassRefBuilder = new AuthnContextClassRefBuilder();
             AuthnContextClassRef authnContextClassRef = authnContextClassRefBuilder
                     .buildObject(SAMLConstants.SAML20_NS,
@@ -471,8 +410,8 @@ public class AuthContextSAMLSSOManager extends DefaultSAML2SSOManager {
                     //There was one matched URN for give authnContextClass.
                     authnContextClassRef.setAuthnContextClassRef(samlAuthnContextURN);
                 } else {
-                    //There are no any matched URN for given authnContextClass, so added authnContextClass name to the
-                    // AuthnContextClassRef.
+                    //There are no any matched URN for given authnContextClass,
+                    // so added authnContextClass name to the AuthnContextClassRef.
                     authnContextClassRef.setAuthnContextClassRef(authnContextClass);
                 }
 
@@ -480,7 +419,6 @@ public class AuthContextSAMLSSOManager extends DefaultSAML2SSOManager {
                 authnContextClassRef.setAuthnContextClassRef(AuthnContext.PPT_AUTHN_CTX);
             }
 
-            /* Authentication Context Comparison Level */
             String authnContextComparison = properties
                     .get(IdentityApplicationConstants.Authenticator.SAML2SSO.AUTHENTICATION_CONTEXT_COMPARISON_LEVEL);
 
@@ -520,8 +458,7 @@ public class AuthContextSAMLSSOManager extends DefaultSAML2SSOManager {
     }
 
     private LogoutRequest buildLogoutRequest(String user, String sessionIndexStr, String idpUrl, String nameQualifier,
-                                             String spNameQualifier)
-            throws SAMLSSOException {
+                                             String spNameQualifier) {
 
         LogoutRequest logoutReq = new LogoutRequestBuilder().buildObject();
 
@@ -571,11 +508,10 @@ public class AuthContextSAMLSSOManager extends DefaultSAML2SSOManager {
             throws SAMLSSOException {
 
         Marshaller marshaller = Configuration.getMarshallerFactory().getMarshaller(requestMessage);
-        Element authDOM = null;
+        Element authDOM;
         try {
             authDOM = marshaller.marshall(requestMessage);
 
-            /* Compress the message */
             Deflater deflater = new Deflater(Deflater.DEFLATED, true);
             ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
             DeflaterOutputStream deflaterOutputStream = new DeflaterOutputStream(byteArrayOutputStream, deflater);
@@ -584,14 +520,12 @@ public class AuthContextSAMLSSOManager extends DefaultSAML2SSOManager {
             deflaterOutputStream.write(rspWrt.toString().getBytes());
             deflaterOutputStream.close();
 
-            /* Encoding the compressed message */
             String encodedRequestMessage =
                     Base64.encodeBytes(byteArrayOutputStream.toByteArray(), Base64.DONT_BREAK_LINES);
 
             byteArrayOutputStream.write(byteArrayOutputStream.toByteArray());
             byteArrayOutputStream.toString();
 
-            // log saml
             if (log.isDebugEnabled()) {
                 log.debug("SAML Request  :  " + rspWrt.toString());
             }

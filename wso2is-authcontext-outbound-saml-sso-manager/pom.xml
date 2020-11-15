@@ -4,12 +4,11 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>org.wso2.carbon.identity.ext</groupId>
-    <artifactId>org.wso2.carbon.identity.samlsso.manager.ext</artifactId>
+    <groupId>org.wso2.carbon.identity</groupId>
+    <artifactId>org.wso2.carbon.identity.custom.samlsso.manager</artifactId>
     <version>1.0.0</version>
-    <name>Outbound SAML extension to support context-aware request building</name>
+    <name>Outbound SAML manager to support default authentication context classes</name>
     <packaging>jar</packaging>
-
 
     <repositories>
         <repository>
@@ -30,18 +29,6 @@
                 <enabled>true</enabled>
                 <updatePolicy>daily</updatePolicy>
                 <checksumPolicy>ignore</checksumPolicy>
-            </releases>
-        </repository>
-        <repository>
-            <id>wso2.snapshots</id>
-            <name>Apache Snapshot Repository</name>
-            <url>http://maven.wso2.org/nexus/content/repositories/snapshots/</url>
-            <snapshots>
-                <enabled>true</enabled>
-                <updatePolicy>daily</updatePolicy>
-            </snapshots>
-            <releases>
-                <enabled>false</enabled>
             </releases>
         </repository>
     </repositories>
