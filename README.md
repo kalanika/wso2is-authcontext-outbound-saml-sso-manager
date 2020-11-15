@@ -1,0 +1,1 @@
+# wso2is-authcontext-outbound-saml-sso-manager
