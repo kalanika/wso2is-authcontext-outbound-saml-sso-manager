@@ -182,6 +182,64 @@ public class AuthContextSAMLSSOManager extends DefaultSAML2SSOManager {
         return idpUrl;
     }
 
+    @Override
+    public String buildPostRequest(HttpServletRequest request, boolean isLogout,
+                                   boolean isPassive, String loginPage, AuthenticationContext context)
+            throws SAMLSSOException {
+
+        doBootstrap();
+        RequestAbstractType requestMessage;
+        String signatureAlgoProp;
+        String digestAlgoProp;
+        String includeCertProp;
+        String signatureAlgo;
+        String digestAlgo;
+        boolean includeCert = false;
+
+        // get Signature Algorithm
+        signatureAlgoProp = properties
+                .get(IdentityApplicationConstants.Authenticator.SAML2SSO.SIGNATURE_ALGORITHM);
+        if (StringUtils.isEmpty(signatureAlgoProp)) {
+            signatureAlgoProp = IdentityApplicationConstants.XML.SignatureAlgorithm.RSA_SHA1;
+        }
+        signatureAlgo = IdentityApplicationManagementUtil.getXMLSignatureAlgorithms().get(signatureAlgoProp);
+
+        // get Digest Algorithm
+        digestAlgoProp = properties
+                .get(IdentityApplicationConstants.Authenticator.SAML2SSO.DIGEST_ALGORITHM);
+        if (StringUtils.isEmpty(digestAlgoProp)) {
+            digestAlgoProp = IdentityApplicationConstants.XML.DigestAlgorithm.SHA1;
+        }
+        digestAlgo = IdentityApplicationManagementUtil.getXMLDigestAlgorithms().get(digestAlgoProp);
+
+        includeCertProp = properties
+                .get(IdentityApplicationConstants.Authenticator.SAML2SSO.INCLUDE_CERT);
+        if (StringUtils.isEmpty(includeCertProp) || Boolean.parseBoolean(includeCertProp)) {
+            includeCert = true;
+        }
+
+        if (!isLogout) {
+            requestMessage = buildAuthnRequest(request, isPassive, loginPage, context);
+            if (SSOUtils.isAuthnRequestSigned(properties)) {
+                SSOUtils.setSignature(requestMessage, signatureAlgo, digestAlgo, includeCert,
+                        new X509CredentialImpl(context.getTenantDomain(), null));
+            }
+        } else {
+            String username = (String) request.getSession().getAttribute(SSOConstants.LOGOUT_USERNAME);
+            String sessionIndex = (String) request.getSession().getAttribute(SSOConstants.LOGOUT_SESSION_INDEX);
+            String nameQualifier = (String) request.getSession().getAttribute(SSOConstants.NAME_QUALIFIER);
+            String spNameQualifier = (String) request.getSession().getAttribute(SSOConstants.SP_NAME_QUALIFIER);
+
+            requestMessage = buildLogoutRequest(username, sessionIndex, loginPage, nameQualifier, spNameQualifier);
+            if (SSOUtils.isLogoutRequestSigned(properties)) {
+                SSOUtils.setSignature(requestMessage, signatureAlgo, digestAlgo, includeCert,
+                        new X509CredentialImpl(context.getTenantDomain(), null));
+            }
+        }
+
+        return SSOUtils.encode(SSOUtils.marshall(requestMessage));
+    }
+
     private AuthnRequest buildAuthnRequest(HttpServletRequest request,
                                            boolean isPassive, String idpUrl, AuthenticationContext context)
             throws SAMLSSOException {
@@ -296,7 +354,7 @@ public class AuthContextSAMLSSOManager extends DefaultSAML2SSOManager {
                 RequestedAuthnContext incomingRequestedAuthnContext = inboundAuthnRequest.getRequestedAuthnContext();
                 requestedAuthnContextBuilder = new RequestedAuthnContextBuilder();
                 requestedAuthnContext = requestedAuthnContextBuilder.buildObject();
-                if (incomingRequestedAuthnContext != null) {
+                if (incomingRequestedAuthnContext != null && incomingRequestedAuthnContext.getAuthnContextClassRefs().size() !=0 ) {
                     requestedAuthnContext.getAuthnContextClassRefs();
                     requestedAuthnContext.setDOM(incomingRequestedAuthnContext.getDOM());
                 } else {
